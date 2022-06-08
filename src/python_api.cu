@@ -124,21 +124,23 @@ pybind11::dict Testbed::vdb(Eigen::Vector3i res3d, BoundingBox aabb, float thres
 		aabb = m_testbed_mode == ETestbedMode::Nerf ? m_render_aabb : m_aabb;
 	}
 
-	marching_cubes_vdb(res3d, aabb, thresh);
+	voxel_vdb(res3d, aabb, thresh);
 
 	py::array_t<float> cpuverts({(int)m_mesh.verts.size(), 3});
 	py::array_t<float> cpunormals({(int)m_mesh.vert_normals.size(), 3});
 	py::array_t<float> cpucolors({(int)m_mesh.vert_colors.size(), 3});
+	py::array_t<float> cpudensity({(int)m_mesh.vert_density.size(), 4});
 	CUDA_CHECK_THROW(cudaMemcpy(cpuverts.request().ptr, m_mesh.verts.data() , m_mesh.verts.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
 	CUDA_CHECK_THROW(cudaMemcpy(cpunormals.request().ptr, m_mesh.vert_normals.data() , m_mesh.vert_normals.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
 	CUDA_CHECK_THROW(cudaMemcpy(cpucolors.request().ptr, m_mesh.vert_colors.data() , m_mesh.vert_colors.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
+	CUDA_CHECK_THROW(cudaMemcpy(cpudensity.request().ptr, m_mesh.vert_density.data() , m_mesh.vert_density.size() * 4 * sizeof(float), cudaMemcpyDeviceToHost));
 
 	Eigen::Vector3f* ns = (Eigen::Vector3f*)cpunormals.request().ptr;
 	for (size_t i = 0; i < m_mesh.vert_normals.size(); ++i) {
 		ns[i].normalize();
 	}
 
-	return py::dict("V"_a=cpuverts, "N"_a=cpunormals, "C"_a=cpucolors);
+	return py::dict("V"_a=cpuverts, "N"_a=cpunormals, "C"_a=cpucolors, "D"_a=cpudensity);
 }
 
 py::array_t<float> Testbed::render_to_cpu(int width, int height, int spp, bool linear, float start_time, float end_time, float fps, float shutter_fraction) {

@@ -3430,7 +3430,7 @@ int Testbed::marching_cubes(Vector3i res3d, const BoundingBox& aabb, float thres
 	return (int)(m_mesh.indices.size()/3);
 }
 
-int Testbed::marching_cubes_vdb(Vector3i res3d, const BoundingBox& aabb, float thresh=0) {
+int Testbed::voxel_vdb(Vector3i res3d, const BoundingBox& aabb, float thresh=0) {
 	res3d.x() = next_multiple((unsigned int)res3d.x(), 16u);
 	res3d.y() = next_multiple((unsigned int)res3d.y(), 16u);
 	res3d.z() = next_multiple((unsigned int)res3d.z(), 16u);
@@ -3440,7 +3440,7 @@ int Testbed::marching_cubes_vdb(Vector3i res3d, const BoundingBox& aabb, float t
 	}
 
 	GPUMemory<float> density = get_density_on_grid(res3d, aabb);
-	marching_cubes_gpu_density(m_inference_stream, m_render_aabb, res3d, thresh, density, m_mesh.verts);
+	voxel_gpu(m_inference_stream, m_render_aabb, res3d, thresh, density, m_mesh.verts, m_mesh.vert_density);
 
 	uint32_t n_verts = (uint32_t)m_mesh.verts.size();
 	m_mesh.verts_gradient.resize(n_verts);

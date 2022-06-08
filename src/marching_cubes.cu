@@ -273,6 +273,68 @@ with z=1
 
 edges 8-11 go in +z direction from vertex 0-3
 */
+
+
+__global__ void gen_voxel(BoundingBox aabb, Vector3i res_3d, const float* __restrict__ density, int*__restrict__ vertidx_grid, Vector3f* verts_out, Vector4f* density_out, float thresh, uint32_t* __restrict__ counters) {
+	uint32_t x = blockIdx.x * blockDim.x + threadIdx.x;
+	uint32_t y = blockIdx.y * blockDim.y + threadIdx.y;
+	uint32_t z = blockIdx.z * blockDim.z + threadIdx.z;
+	if (x>=res_3d.x() || y>=res_3d.y() || z>=res_3d.z()) return;
+	Vector3f scale=(aabb.max-aabb.min).cwiseQuotient(res_3d.cast<float>());
+	Vector3f offset=aabb.min;
+	// Vector4f scale4d=(aabb.max-aabb.min).cwiseQuotient(res_3d.cast<float>());
+	// Vector4f offset4d=aabb.min;
+	uint32_t res2=res_3d.x()*res_3d.y();
+	uint32_t res3=res_3d.x()*res_3d.y()*res_3d.z();
+	uint32_t idx=x+y*res_3d.x()+z*res2;
+	float f0 = density[idx];
+	float f1x = density[idx+1];
+	float f1y = density[idx+res_3d.x()];
+	float f1z = density[idx+res2];
+	bool inside=(f0>thresh);
+	uint32_t vidx = atomicAdd(counters,1);
+	verts_out[vidx]=Vector3f{float(x), float(y), float(z)}.cwiseProduct(scale) + offset;
+	density_out[vidx]=Vector4f{float(f0), float(f1x), float(f1y), float(f1z)}; //.cwiseProduct(scale4d) + offset4d;
+
+	// if (x<res_3d.x()-1) {
+	// 	float f1 = density[idx+1];
+	// 	if (inside != (f1>thresh)) {
+	// 		uint32_t vidx = atomicAdd(counters,1);
+	// 		if (verts_out) {
+	// 			vertidx_grid[idx]=vidx+1;
+	// 			float prevf=f0,nextf=f1;
+	// 			float dt=((thresh-prevf)/(nextf-prevf));
+	// 			verts_out[vidx]=Vector3f{float(x)+dt, float(y), float(z)}.cwiseProduct(scale) + offset;
+	// 		}
+	// 	}
+	// }
+	// if (y<res_3d.y()-1) {
+	// 	float f1 = density[idx+res_3d.x()];
+	// 	if (inside != (f1>thresh)) {
+	// 		uint32_t vidx = atomicAdd(counters,1);
+	// 		if (verts_out) {
+	// 			vertidx_grid[idx+res3]=vidx+1;
+	// 			float prevf=f0,nextf=f1;
+	// 			float dt=((thresh-prevf)/(nextf-prevf));
+	// 			verts_out[vidx]=Vector3f{float(x), float(y)+dt, float(z)}.cwiseProduct(scale) + offset;
+	// 		}
+	// 	}
+	// }
+	// if (z<res_3d.z()-1) {
+	// 	float f1 = density[idx+res2];
+	// 	if (inside != (f1>thresh)) {
+	// 		uint32_t vidx = atomicAdd(counters,1);
+	// 		if (verts_out) {
+	// 			vertidx_grid[idx+res3*2]=vidx+1;
+	// 			float prevf=f0,nextf=f1;
+	// 			float dt=((thresh-prevf)/(nextf-prevf));
+	// 			verts_out[vidx]=Vector3f{float(x), float(y), float(z)+dt}.cwiseProduct(scale) + offset;
+	// 		}
+	// 	}
+	// }
+}
+
+
 __global__ void gen_vertices(BoundingBox aabb, Vector3i res_3d, const float* __restrict__ density, int*__restrict__ vertidx_grid, Vector3f* verts_out, float thresh, uint32_t* __restrict__ counters) {
 	uint32_t x = blockIdx.x * blockDim.x + threadIdx.x;
 	uint32_t y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -787,7 +849,7 @@ void compute_mesh_opt_gradients(
 }
 
 
-void marching_cubes_gpu_density(cudaStream_t stream, BoundingBox aabb, Vector3i res_3d, float thresh, const tcnn::GPUMemory<float>& density, tcnn::GPUMemory<Vector3f>& verts_out) {
+void voxel_gpu(cudaStream_t stream, BoundingBox aabb, Vector3i res_3d, float thresh, const tcnn::GPUMemory<float>& density, tcnn::GPUMemory<Vector3f>& verts_out, tcnn::GPUMemory<Vector4f>& density_out) {
 	GPUMemory<uint32_t> counters;
 
 	counters.enlarge(4);
@@ -802,7 +864,7 @@ void marching_cubes_gpu_density(cudaStream_t stream, BoundingBox aabb, Vector3i 
 	const dim3 threads = { 4, 4, 4 };
 	const dim3 blocks = { div_round_up((uint32_t)res_3d.x(), threads.x), div_round_up((uint32_t)res_3d.y(), threads.y), div_round_up((uint32_t)res_3d.z(), threads.z) };
 	// count only
-	gen_vertices<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), nullptr, nullptr, thresh, counters.data());
+	gen_voxel<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), nullptr, nullptr, nullptr, thresh, counters.data());
 	// gen_faces<<<blocks, threads, 0>>>(res_3d, density.data(), nullptr, nullptr, thresh, counters.data());
 	std::vector<uint32_t> cpucounters; cpucounters.resize(4);
 	counters.copy_to_host(cpucounters);
@@ -811,9 +873,11 @@ void marching_cubes_gpu_density(cudaStream_t stream, BoundingBox aabb, Vector3i 
 	uint32_t n_verts=(cpucounters[0]+127)&~127; // round for later nn stuff
 	verts_out.resize(n_verts);
 	verts_out.memset(0);
+	density_out.resize(n_verts);
+	density_out.memset(0);
 	// indices_out.resize(cpucounters[1]);
 	// actually generate verts
-	gen_vertices<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), vertex_grid, verts_out.data(), thresh, counters.data()+2);
+	gen_voxel<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), vertex_grid, verts_out.data(), density_out.data(), thresh, counters.data()+2);
 	// gen_faces<<<blocks, threads, 0>>>(res_3d, density.data(), vertex_grid, indices_out.data(), thresh, counters.data()+2);
 }
 

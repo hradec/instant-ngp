@@ -335,7 +335,7 @@ public:
 	tcnn::GPUMemory<float> get_sdf_gt_on_grid(Eigen::Vector3i res3d, const BoundingBox& aabb); // sdf gt version (sdf only)
 	tcnn::GPUMemory<Eigen::Array4f> get_rgba_on_grid(Eigen::Vector3i res3d, Eigen::Vector3f ray_dir);
 	int marching_cubes(Eigen::Vector3i res3d, const BoundingBox& aabb, float thresh);
-	int marching_cubes_vdb(Eigen::Vector3i res3d, const BoundingBox& aabb, float thresh);
+	int voxel_vdb(Eigen::Vector3i res3d, const BoundingBox& aabb, float thresh);
 
 	// Determines the 3d focus point by rendering a little 16x16 depth image around
 	// the mouse cursor and picking the median depth.
@@ -402,6 +402,7 @@ public:
 		tcnn::GPUMemory<Eigen::Vector3f> verts;
 		tcnn::GPUMemory<Eigen::Vector3f> vert_normals;
 		tcnn::GPUMemory<Eigen::Vector3f> vert_colors;
+		tcnn::GPUMemory<Eigen::Vector4f> vert_density;
 		tcnn::GPUMemory<Eigen::Vector4f> verts_smoothed; // homogenous
 		tcnn::GPUMemory<uint32_t> indices;
 		tcnn::GPUMemory<Eigen::Vector3f> verts_gradient;
@@ -413,6 +414,7 @@ public:
 			verts={};
 			vert_normals={};
 			vert_colors={};
+			vert_density={};
 			verts_smoothed={};
 			verts_gradient={};
 			trainable_verts=nullptr;
