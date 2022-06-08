@@ -3430,6 +3430,43 @@ int Testbed::marching_cubes(Vector3i res3d, const BoundingBox& aabb, float thres
 	return (int)(m_mesh.indices.size()/3);
 }
 
+int Testbed::marching_cubes_vdb(Vector3i res3d, const BoundingBox& aabb, float thresh=0) {
+	res3d.x() = next_multiple((unsigned int)res3d.x(), 16u);
+	res3d.y() = next_multiple((unsigned int)res3d.y(), 16u);
+	res3d.z() = next_multiple((unsigned int)res3d.z(), 16u);
+
+	if (thresh == std::numeric_limits<float>::max()) {
+		thresh = m_mesh.thresh;
+	}
+
+	GPUMemory<float> density = get_density_on_grid(res3d, aabb);
+	marching_cubes_gpu_density(m_inference_stream, m_render_aabb, res3d, thresh, density, m_mesh.verts);
+
+	uint32_t n_verts = (uint32_t)m_mesh.verts.size();
+	m_mesh.verts_gradient.resize(n_verts);
+
+	m_mesh.trainable_verts = std::make_shared<TrainableBuffer<3, 1, float>>(Matrix<int, 1, 1>{(int)n_verts});
+	m_mesh.verts_gradient.copy_from_device(m_mesh.verts); // Make sure the vertices don't get destroyed in the initialization
+
+	pcg32 rnd{m_seed};
+	m_mesh.trainable_verts->initialize_params(rnd, (float*)m_mesh.verts.data(), (float*)m_mesh.verts.data(), (float*)m_mesh.verts.data(), (float*)m_mesh.verts.data(), (float*)m_mesh.verts_gradient.data());
+	m_mesh.verts.copy_from_device(m_mesh.verts_gradient);
+
+	m_mesh.verts_optimizer.reset(create_optimizer<float>({
+		{"otype", "Adam"},
+		{"learning_rate", 1e-4},
+		{"beta1", 0.9f},
+		{"beta2", 0.99f},
+	}));
+
+	m_mesh.verts_optimizer->allocate(m_mesh.trainable_verts);
+
+	// compute_mesh_1ring(m_mesh.verts, m_mesh.indices, m_mesh.verts_smoothed, m_mesh.vert_normals);
+	compute_mesh_vertex_colors();
+
+	return (int)(m_mesh.verts.size()/3);
+}
+
 uint8_t* Testbed::Nerf::get_density_grid_bitfield_mip(uint32_t mip) {
 	return density_grid_bitfield.data() + grid_mip_offset(mip)/8;
 }

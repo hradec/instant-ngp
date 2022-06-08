@@ -47,6 +47,9 @@ def parse_args():
 	parser.add_argument("--save_mesh", default="", help="Output a marching-cubes based mesh from the NeRF or SDF model. Supports OBJ and PLY format.")
 	parser.add_argument("--marching_cubes_res", default=256, type=int, help="Sets the resolution for the marching cubes grid.")
 
+	parser.add_argument("--vdb_save", default="", help="Output a openvdb volume file from the NeRF or SDF model.")
+	parser.add_argument("--vdb_voxel_res", default=256, type=int, help="Sets the resolution of the voxel volume in the vdb.")
+
 	parser.add_argument("--width", "--screenshot_w", type=int, default=0, help="Resolution width of GUI and screenshots.")
 	parser.add_argument("--height", "--screenshot_h", type=int, default=0, help="Resolution height of GUI and screenshots.")
 
@@ -299,6 +302,15 @@ if __name__ == "__main__":
 		print(f"Generating mesh via marching cubes and saving to {args.save_mesh}. Resolution=[{res},{res},{res}]")
 		testbed.compute_and_save_marching_cubes_mesh(args.save_mesh, [res, res, res])
 
+
+	if args.vdb_save:
+		# parser.add_argument("--vdb_save", default="", help="Output a openvdb volume file from the NeRF or SDF model.")
+		# parser.add_argument("--vdb_voxel_res", default=256, type=int, help="Sets the resolution of the voxel volume in the vdb.")
+		res = args.vdb_voxel_res or 256
+		print(f"Generating volume and saving to {args.vdb_save}. Resolution=[{res},{res},{res}]")
+		numpyVDB = testbed.vdb( [res, res, res] )
+		print(numpyVDB)
+
 	if args.width:
 		if ref_transforms:
 			testbed.fov_axis = 0
@@ -327,6 +339,3 @@ if __name__ == "__main__":
 			if os.path.dirname(outname) != "":
 				os.makedirs(os.path.dirname(outname), exist_ok=True)
 			write_image(outname + ".png", image)
-
-
-

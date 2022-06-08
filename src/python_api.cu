@@ -119,6 +119,27 @@ pybind11::dict Testbed::compute_marching_cubes_mesh(Eigen::Vector3i res3d, Bound
 
 	return py::dict("V"_a=cpuverts, "N"_a=cpunormals, "C"_a=cpucolors, "F"_a=cpuindices);
 }
+pybind11::dict Testbed::vdb(Eigen::Vector3i res3d, BoundingBox aabb, float thresh) {
+	if (aabb.is_empty()) {
+		aabb = m_testbed_mode == ETestbedMode::Nerf ? m_render_aabb : m_aabb;
+	}
+
+	marching_cubes_vdb(res3d, aabb, thresh);
+
+	py::array_t<float> cpuverts({(int)m_mesh.verts.size(), 3});
+	py::array_t<float> cpunormals({(int)m_mesh.vert_normals.size(), 3});
+	py::array_t<float> cpucolors({(int)m_mesh.vert_colors.size(), 3});
+	CUDA_CHECK_THROW(cudaMemcpy(cpuverts.request().ptr, m_mesh.verts.data() , m_mesh.verts.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
+	CUDA_CHECK_THROW(cudaMemcpy(cpunormals.request().ptr, m_mesh.vert_normals.data() , m_mesh.vert_normals.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
+	CUDA_CHECK_THROW(cudaMemcpy(cpucolors.request().ptr, m_mesh.vert_colors.data() , m_mesh.vert_colors.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
+
+	Eigen::Vector3f* ns = (Eigen::Vector3f*)cpunormals.request().ptr;
+	for (size_t i = 0; i < m_mesh.vert_normals.size(); ++i) {
+		ns[i].normalize();
+	}
+
+	return py::dict("V"_a=cpuverts, "N"_a=cpunormals, "C"_a=cpucolors);
+}
 
 py::array_t<float> Testbed::render_to_cpu(int width, int height, int spp, bool linear, float start_time, float end_time, float fps, float shutter_fraction) {
 	m_windowless_render_surface.resize({width, height});
@@ -395,6 +416,14 @@ PYBIND11_MODULE(pyngp, m) {
 			"Compute a marching cubes mesh from the current SDF or NeRF model. "
 			"Returns a python dict with numpy arrays V (vertices), N (vertex normals), C (vertex colors), and F (triangular faces). "
 			"`thresh` is the density threshold; use 0 for SDF; 2.5 works well for NeRF. "
+			"If the aabb parameter specifies an inside-out (\"empty\") box (default), the current render_aabb bounding box is used."
+		)
+		.def("vdb", &Testbed::vdb,
+			py::arg("resolution") = Eigen::Vector3i::Constant(256),
+			py::arg("aabb") = BoundingBox{},
+			py::arg("thresh") = std::numeric_limits<float>::max(),
+			"returns the density volume as 3D numpy array. "
+			"resolution is the voxel resolution and aabb is the bouding box to compute."
 			"If the aabb parameter specifies an inside-out (\"empty\") box (default), the current render_aabb bounding box is used."
 		)
 		;

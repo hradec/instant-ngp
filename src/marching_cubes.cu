@@ -786,6 +786,38 @@ void compute_mesh_opt_gradients(
 	);
 }
 
+
+void marching_cubes_gpu_density(cudaStream_t stream, BoundingBox aabb, Vector3i res_3d, float thresh, const tcnn::GPUMemory<float>& density, tcnn::GPUMemory<Vector3f>& verts_out) {
+	GPUMemory<uint32_t> counters;
+
+	counters.enlarge(4);
+	counters.memset(0);
+
+	size_t n_bytes = res_3d.x() * (size_t)res_3d.y() * res_3d.z() * 3 * sizeof(int);
+	auto workspace = allocate_workspace(stream, n_bytes);
+	CUDA_CHECK_THROW(cudaMemsetAsync(workspace.data(), -1, n_bytes, stream));
+
+	int* vertex_grid = (int*)workspace.data();
+
+	const dim3 threads = { 4, 4, 4 };
+	const dim3 blocks = { div_round_up((uint32_t)res_3d.x(), threads.x), div_round_up((uint32_t)res_3d.y(), threads.y), div_round_up((uint32_t)res_3d.z(), threads.z) };
+	// count only
+	gen_vertices<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), nullptr, nullptr, thresh, counters.data());
+	// gen_faces<<<blocks, threads, 0>>>(res_3d, density.data(), nullptr, nullptr, thresh, counters.data());
+	std::vector<uint32_t> cpucounters; cpucounters.resize(4);
+	counters.copy_to_host(cpucounters);
+	tlog::info() << "#vertices=" << cpucounters[0] << " #triangles=" << (cpucounters[1]/3);
+
+	uint32_t n_verts=(cpucounters[0]+127)&~127; // round for later nn stuff
+	verts_out.resize(n_verts);
+	verts_out.memset(0);
+	// indices_out.resize(cpucounters[1]);
+	// actually generate verts
+	gen_vertices<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), vertex_grid, verts_out.data(), thresh, counters.data()+2);
+	// gen_faces<<<blocks, threads, 0>>>(res_3d, density.data(), vertex_grid, indices_out.data(), thresh, counters.data()+2);
+}
+
+
 void marching_cubes_gpu(cudaStream_t stream, BoundingBox aabb, Vector3i res_3d, float thresh, const tcnn::GPUMemory<float>& density, tcnn::GPUMemory<Vector3f>& verts_out, tcnn::GPUMemory<uint32_t>& indices_out) {
 	GPUMemory<uint32_t> counters;
 
