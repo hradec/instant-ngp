@@ -347,7 +347,7 @@ public:
 
 #ifdef NGP_PYTHON
 	pybind11::dict compute_marching_cubes_mesh(Eigen::Vector3i res3d = Eigen::Vector3i::Constant(128), BoundingBox aabb = BoundingBox{Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones()}, float thresh=2.5f);
-	pybind11::dict vdb(Eigen::Vector3i res3d = Eigen::Vector3i::Constant(128), BoundingBox aabb = BoundingBox{Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones()}, float thresh=0.0f);
+	pybind11::dict vdb(Eigen::Vector3i res3d = Eigen::Vector3i::Constant(128), float thresh=0.0f, BoundingBox aabb = BoundingBox{Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones()});
 	pybind11::array_t<float> render_to_cpu(int width, int height, int spp, bool linear, float start_t, float end_t, float fps, float shutter_fraction);
 	pybind11::array_t<float> render_with_rolling_shutter_to_cpu(const Eigen::Matrix<float, 3, 4>& camera_transform_start, const Eigen::Matrix<float, 3, 4>& camera_transform_end, const Eigen::Vector4f& rolling_shutter, int width, int height, int spp, bool linear);
 	pybind11::array_t<float> screenshot(bool linear) const;
@@ -408,6 +408,7 @@ public:
 		tcnn::GPUMemory<Eigen::Vector3f> verts_gradient;
 		std::shared_ptr<TrainableBuffer<3, 1, float>> trainable_verts;
 		std::shared_ptr<tcnn::Optimizer<float>> verts_optimizer;
+		BoundingBox aabb;
 
 		void clear() {
 			indices={};
@@ -419,6 +420,7 @@ public:
 			verts_gradient={};
 			trainable_verts=nullptr;
 			verts_optimizer=nullptr;
+			aabb=BoundingBox{};
 		}
 	};
 	MeshState m_mesh;

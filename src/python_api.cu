@@ -119,7 +119,7 @@ pybind11::dict Testbed::compute_marching_cubes_mesh(Eigen::Vector3i res3d, Bound
 
 	return py::dict("V"_a=cpuverts, "N"_a=cpunormals, "C"_a=cpucolors, "F"_a=cpuindices);
 }
-pybind11::dict Testbed::vdb(Eigen::Vector3i res3d, BoundingBox aabb, float thresh) {
+pybind11::dict Testbed::vdb(Eigen::Vector3i res3d, float thresh, BoundingBox aabb) {
 	if (aabb.is_empty()) {
 		aabb = m_testbed_mode == ETestbedMode::Nerf ? m_render_aabb : m_aabb;
 	}
@@ -130,17 +130,58 @@ pybind11::dict Testbed::vdb(Eigen::Vector3i res3d, BoundingBox aabb, float thres
 	py::array_t<float> cpunormals({(int)m_mesh.vert_normals.size(), 3});
 	py::array_t<float> cpucolors({(int)m_mesh.vert_colors.size(), 3});
 	py::array_t<float> cpudensity({(int)m_mesh.vert_density.size(), 4});
+	py::array_t<float> cpudensityf({(int)m_mesh.vert_density.size(), 1});
 	CUDA_CHECK_THROW(cudaMemcpy(cpuverts.request().ptr, m_mesh.verts.data() , m_mesh.verts.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
 	CUDA_CHECK_THROW(cudaMemcpy(cpunormals.request().ptr, m_mesh.vert_normals.data() , m_mesh.vert_normals.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
 	CUDA_CHECK_THROW(cudaMemcpy(cpucolors.request().ptr, m_mesh.vert_colors.data() , m_mesh.vert_colors.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
 	CUDA_CHECK_THROW(cudaMemcpy(cpudensity.request().ptr, m_mesh.vert_density.data() , m_mesh.vert_density.size() * 4 * sizeof(float), cudaMemcpyDeviceToHost));
+
+	std::cout <<  aabb << " " << "\n";
+
+	py::array_t<float> BBmax({3});
+	py::buffer_info buf_BBmax = BBmax.request();
+	float *ptr_BBmax = (float *)buf_BBmax.ptr;
+
+	py::array_t<float> BBmin({3});
+	py::buffer_info buf_BBmin = BBmin.request();
+	float *ptr_BBmin = (float *)buf_BBmin.ptr;
+
+	ptr_BBmin[0] = aabb.min.x();
+	ptr_BBmin[1] = aabb.min.y();
+	ptr_BBmin[2] = aabb.min.z();
+
+	ptr_BBmax[0] = aabb.max.x();
+	ptr_BBmax[1] = aabb.max.y();
+	ptr_BBmax[2] = aabb.max.z();
+
+
+	// double *gridD = new double[aabb.maxaabb.min]
+
+	//  py::buffer_info shape[0] is the number of items in the array, and
+	// shape[1] is the # of elements in each array row
+
+	py::buffer_info buf_cpuverts = cpuverts.request();
+	float *ptr_cpuverts = (float *)buf_cpuverts.ptr;
+
+	py::buffer_info buf_cpudensity = cpudensity.request();
+	float *ptr_cpudensity = (float *)buf_cpudensity.ptr;
+	std::cout <<  buf_cpudensity.shape[0] << " " <<  buf_cpudensity.shape[1] << " " <<  buf_cpudensity.ndim << " " << buf_cpudensity.size << "\n";
+
+	py::buffer_info buf_cpudensityf = cpudensityf.request();
+	float *ptr_cpudensityf = (float *)buf_cpudensityf.ptr;
+	std::cout <<  buf_cpudensityf.shape[0] << " " <<  buf_cpudensityf.shape[1] << " " <<  buf_cpudensityf.ndim << " " << buf_cpudensityf.size << "\n";
+
+	for( size_t x=0 ; x < buf_cpudensity.shape[0] ; x++ ){
+		ptr_cpudensityf[x] = float(ptr_cpudensity[ x * buf_cpudensity.shape[1] ]);
+	}
+
 
 	Eigen::Vector3f* ns = (Eigen::Vector3f*)cpunormals.request().ptr;
 	for (size_t i = 0; i < m_mesh.vert_normals.size(); ++i) {
 		ns[i].normalize();
 	}
 
-	return py::dict("V"_a=cpuverts, "N"_a=cpunormals, "C"_a=cpucolors, "D"_a=cpudensity);
+	return py::dict("V"_a=cpuverts, "N"_a=cpunormals, "C"_a=cpucolors, "D"_a=cpudensityf, "BBmin"_a=BBmin, "BBmax"_a=BBmax, "Res"_a=res3d);
 }
 
 py::array_t<float> Testbed::render_to_cpu(int width, int height, int spp, bool linear, float start_time, float end_time, float fps, float shutter_fraction) {
@@ -422,8 +463,8 @@ PYBIND11_MODULE(pyngp, m) {
 		)
 		.def("vdb", &Testbed::vdb,
 			py::arg("resolution") = Eigen::Vector3i::Constant(256),
+			py::arg("thresh") = 0.0,
 			py::arg("aabb") = BoundingBox{},
-			py::arg("thresh") = std::numeric_limits<float>::max(),
 			"returns the density volume as 3D numpy array. "
 			"resolution is the voxel resolution and aabb is the bouding box to compute."
 			"If the aabb parameter specifies an inside-out (\"empty\") box (default), the current render_aabb bounding box is used."

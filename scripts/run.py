@@ -304,12 +304,52 @@ if __name__ == "__main__":
 
 
 	if args.vdb_save:
+		import pyopenvdb as vdb
+		import numpy as np
 		# parser.add_argument("--vdb_save", default="", help="Output a openvdb volume file from the NeRF or SDF model.")
 		# parser.add_argument("--vdb_voxel_res", default=256, type=int, help="Sets the resolution of the voxel volume in the vdb.")
 		res = args.vdb_voxel_res or 256
 		print(f"Generating volume and saving to {args.vdb_save}. Resolution=[{res},{res},{res}]")
-		numpyVDB = testbed.vdb( [res, res, res] )
-		print(numpyVDB)
+		numpyVDB = testbed.vdb( [res, res, res], -0.5 )
+		numpyArray = np.ndarray((res, res, res), float)
+		# print(numpyVDB)
+		# print(type(numpyVDB))
+		for each in numpyVDB:
+			if hasattr( numpyVDB[each], 'shape' ):
+				print(each, numpyVDB[each].shape)
+		# 	numpyVDB[each]
+		D = np.concatenate((numpyVDB['V'], numpyVDB['D']), axis=1)
+		# print (D, D.shape)
+		print(numpyVDB['BBmin'], numpyVDB['BBmax'])
+		def xyz2ijk(numpyVDB, V):
+			x = V[0]
+			y = V[1]
+			z = V[2]
+			xsize = numpyVDB['BBmax'][0] - numpyVDB['BBmin'][0]
+			ysize = numpyVDB['BBmax'][1] - numpyVDB['BBmin'][1]
+			zsize = numpyVDB['BBmax'][2] - numpyVDB['BBmin'][2]
+			i = int(abs( (x - numpyVDB['BBmin'][0]) * (numpyVDB['Res'][0] / xsize) ))
+			j = int(abs( (y - numpyVDB['BBmin'][1]) * (numpyVDB['Res'][1] / ysize) ))
+			k = int(abs( (z - numpyVDB['BBmin'][2]) * (numpyVDB['Res'][2] / ysize) ))
+			return (i,j,k)
+
+		np_grid=np.ndarray((res, res, res, 3), float)
+		for n in range(1,len(numpyVDB['V'])):
+			i, j, k = xyz2ijk(numpyVDB, numpyVDB['V'][n])
+			numpyArray[i][j][k] = numpyVDB['D'][n]
+		# print(X.shape)
+		# print(D[0][2])
+		# min=99999999999999999999999
+		# for n in range(1,len(numpyVDB['V'])):
+		# 	v = abs(numpyVDB['V'][n][0]-numpyVDB['V'][n-1][0])
+		# 	if v!=0.0 and v < min:
+		# 		min = v
+		# 		print( n,'{:.80f}'.format(v))
+		vecgrid = vdb.FloatGrid()
+		vecgrid.copyFromArray(numpyArray)
+		print(vecgrid.activeVoxelCount())
+		vecgrid.name = 'density'
+		vdb.write('out.vdb', vecgrid)
 
 	if args.width:
 		if ref_transforms:

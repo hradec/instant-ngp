@@ -282,56 +282,74 @@ __global__ void gen_voxel(BoundingBox aabb, Vector3i res_3d, const float* __rest
 	if (x>=res_3d.x() || y>=res_3d.y() || z>=res_3d.z()) return;
 	Vector3f scale=(aabb.max-aabb.min).cwiseQuotient(res_3d.cast<float>());
 	Vector3f offset=aabb.min;
-	// Vector4f scale4d=(aabb.max-aabb.min).cwiseQuotient(res_3d.cast<float>());
-	// Vector4f offset4d=aabb.min;
 	uint32_t res2=res_3d.x()*res_3d.y();
 	uint32_t res3=res_3d.x()*res_3d.y()*res_3d.z();
 	uint32_t idx=x+y*res_3d.x()+z*res2;
 	float f0 = density[idx];
-	float f1x = density[idx+1];
-	float f1y = density[idx+res_3d.x()];
-	float f1z = density[idx+res2];
-	bool inside=(f0>thresh);
-	uint32_t vidx = atomicAdd(counters,1);
-	verts_out[vidx]=Vector3f{float(x), float(y), float(z)}.cwiseProduct(scale) + offset;
-	density_out[vidx]=Vector4f{float(f0), float(f1x), float(f1y), float(f1z)}; //.cwiseProduct(scale4d) + offset4d;
 
-	// if (x<res_3d.x()-1) {
-	// 	float f1 = density[idx+1];
-	// 	if (inside != (f1>thresh)) {
-	// 		uint32_t vidx = atomicAdd(counters,1);
-	// 		if (verts_out) {
-	// 			vertidx_grid[idx]=vidx+1;
-	// 			float prevf=f0,nextf=f1;
-	// 			float dt=((thresh-prevf)/(nextf-prevf));
-	// 			verts_out[vidx]=Vector3f{float(x)+dt, float(y), float(z)}.cwiseProduct(scale) + offset;
-	// 		}
-	// 	}
+	// uint32_t vidx;
+	// vidx = atomicAdd(counters,1);
+	// if (verts_out) {
+	// 	vertidx_grid[idx]=vidx+1;
+	// 	verts_out[vidx]=Vector3f{float(x), float(y), float(z)}.cwiseProduct(scale) + offset;
+	// 	density_out[vidx]=Vector4f{f0, 0, 0, 0};
 	// }
-	// if (y<res_3d.y()-1) {
-	// 	float f1 = density[idx+res_3d.x()];
-	// 	if (inside != (f1>thresh)) {
-	// 		uint32_t vidx = atomicAdd(counters,1);
-	// 		if (verts_out) {
-	// 			vertidx_grid[idx+res3]=vidx+1;
-	// 			float prevf=f0,nextf=f1;
-	// 			float dt=((thresh-prevf)/(nextf-prevf));
-	// 			verts_out[vidx]=Vector3f{float(x), float(y)+dt, float(z)}.cwiseProduct(scale) + offset;
-	// 		}
-	// 	}
+	// vidx = atomicAdd(counters,1);
+	// if (verts_out) {
+	// 	vertidx_grid[idx+res3]=vidx+1;
+	// 	verts_out[vidx]=Vector3f{float(x), float(y), float(z)}.cwiseProduct(scale) + offset;
+	// 	density_out[vidx]=Vector4f{f0, 0, 0, 0};
 	// }
-	// if (z<res_3d.z()-1) {
-	// 	float f1 = density[idx+res2];
-	// 	if (inside != (f1>thresh)) {
-	// 		uint32_t vidx = atomicAdd(counters,1);
-	// 		if (verts_out) {
-	// 			vertidx_grid[idx+res3*2]=vidx+1;
-	// 			float prevf=f0,nextf=f1;
-	// 			float dt=((thresh-prevf)/(nextf-prevf));
-	// 			verts_out[vidx]=Vector3f{float(x), float(y), float(z)+dt}.cwiseProduct(scale) + offset;
-	// 		}
-	// 	}
+	// vidx = atomicAdd(counters,1);
+	// if (verts_out) {
+	// 	vertidx_grid[idx+res3*2]=vidx+1;
+	// 	verts_out[vidx]=Vector3f{float(x), float(y), float(z)}.cwiseProduct(scale) + offset;
+	// 	density_out[vidx]=Vector4f{f0, 0, 0, 0};
 	// }
+
+	bool inside=(f0>thresh);
+	if (x<res_3d.x()-1) {
+		float f1 = density[idx+1];
+		if (inside != (f1>thresh))
+		{
+			uint32_t vidx = atomicAdd(counters,1);
+			if (verts_out) {
+				vertidx_grid[idx]=vidx+1;
+				float prevf=f0,nextf=f1;
+				float dt=((thresh-prevf)/(nextf-prevf));
+				verts_out[vidx]=Vector3f{float(x)+dt, float(y), float(z)}.cwiseProduct(scale) + offset;
+				density_out[vidx]=Vector4f{prevf, nextf, dt, 0};
+			}
+		}
+	}
+	if (y<res_3d.y()-1) {
+		float f1 = density[idx+res_3d.x()];
+		if (inside != (f1>thresh))
+		{
+			uint32_t vidx = atomicAdd(counters,1);
+			if (verts_out) {
+				vertidx_grid[idx+res3]=vidx+1;
+				float prevf=f0,nextf=f1;
+				float dt=((thresh-prevf)/(nextf-prevf));
+				verts_out[vidx]=Vector3f{float(x), float(y)+dt, float(z)}.cwiseProduct(scale) + offset;
+				density_out[vidx]=Vector4f{prevf, nextf, dt, 0};
+			}
+		}
+	}
+	if (z<res_3d.z()-1) {
+		float f1 = density[idx+res2];
+		if (inside != (f1>thresh))
+		{
+			uint32_t vidx = atomicAdd(counters,1);
+			if (verts_out) {
+				vertidx_grid[idx+res3*2]=vidx+1;
+				float prevf=f0,nextf=f1;
+				float dt=((thresh-prevf)/(nextf-prevf));
+				verts_out[vidx]=Vector3f{float(x), float(y), float(z)+dt}.cwiseProduct(scale) + offset;
+				density_out[vidx]=Vector4f{prevf, nextf, dt, 0};
+			}
+		}
+	}
 }
 
 
@@ -865,6 +883,7 @@ void voxel_gpu(cudaStream_t stream, BoundingBox aabb, Vector3i res_3d, float thr
 	const dim3 blocks = { div_round_up((uint32_t)res_3d.x(), threads.x), div_round_up((uint32_t)res_3d.y(), threads.y), div_round_up((uint32_t)res_3d.z(), threads.z) };
 	// count only
 	gen_voxel<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), nullptr, nullptr, nullptr, thresh, counters.data());
+	// gen_vertices<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), nullptr, nullptr, thresh, counters.data());
 	// gen_faces<<<blocks, threads, 0>>>(res_3d, density.data(), nullptr, nullptr, thresh, counters.data());
 	std::vector<uint32_t> cpucounters; cpucounters.resize(4);
 	counters.copy_to_host(cpucounters);
@@ -878,6 +897,7 @@ void voxel_gpu(cudaStream_t stream, BoundingBox aabb, Vector3i res_3d, float thr
 	// indices_out.resize(cpucounters[1]);
 	// actually generate verts
 	gen_voxel<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), vertex_grid, verts_out.data(), density_out.data(), thresh, counters.data()+2);
+	// gen_vertices<<<blocks, threads, 0>>>(aabb, res_3d, density.data(), vertex_grid, verts_out.data(), thresh, counters.data()+2);
 	// gen_faces<<<blocks, threads, 0>>>(res_3d, density.data(), vertex_grid, indices_out.data(), thresh, counters.data()+2);
 }
 
