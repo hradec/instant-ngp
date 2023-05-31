@@ -1,1 +1,1 @@
-./run.sh /bin/bash -c 'cd build ; make -j $CORES && cd ..  && python scripts/run.py --mode --scene data/nerf/fox/ --load_snapshot ./xx.msgpack --n_steps 500 --vdb_save xx.vdb'
+./run.sh /bin/bash -c 'cd build ; make -j $CORES && cd ..  && python scripts/run.py --mode --scene data/nerf/fox/ --save_snapshot ./xx.msgpack --n_steps 500 --vdb_save ./vdb/x.vdb --vdb_voxel_res 512 --vdb_force_bbox "((-0.5,-0.5,-0.5),(0.5,0.5,0.5))"  '

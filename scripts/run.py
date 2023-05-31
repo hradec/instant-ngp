@@ -24,7 +24,6 @@ from tqdm import tqdm
 
 import pyngp as ngp # noqa
 
-
 def parse_args():
 	parser = argparse.ArgumentParser(description="Run neural graphics primitives testbed with additional configuration & output options")
 
@@ -49,6 +48,11 @@ def parse_args():
 
 	parser.add_argument("--vdb_save", default="", help="Output a openvdb volume file from the NeRF or SDF model.")
 	parser.add_argument("--vdb_voxel_res", default=256, type=int, help="Sets the resolution of the voxel volume in the vdb.")
+	parser.add_argument("--vdb_crop", default=1.0, type=float, help="Crop the BoudingBox to it's center (just like the crop slider in the GUI).")
+	parser.add_argument("--vdb_force_bbox", default=None, type=str, help="Force a custom BoudingBox to crop the volume.")
+	parser.add_argument("--vdb_crop_offsetX", default=None, type=float, help="Move the center of the crop boudingbox.")
+	parser.add_argument("--vdb_crop_offsetY", default=None, type=float, help="Move the center of the crop boudingbox.")
+	parser.add_argument("--vdb_crop_offsetZ", default=None, type=float, help="Move the center of the crop boudingbox.")
 
 	parser.add_argument("--width", "--screenshot_w", type=int, default=0, help="Resolution width of GUI and screenshots.")
 	parser.add_argument("--height", "--screenshot_h", type=int, default=0, help="Resolution height of GUI and screenshots.")
@@ -106,6 +110,8 @@ if __name__ == "__main__":
 
 	testbed = ngp.Testbed(mode)
 	testbed.nerf.sharpen = float(args.sharpen)
+	# print("============================")
+	# print(dir(testbed.nerf))
 
 	if mode == ngp.TestbedMode.Sdf:
 		testbed.tonemap_curve = ngp.TonemapCurve.ACES
@@ -306,37 +312,73 @@ if __name__ == "__main__":
 	if args.vdb_save:
 		import pyopenvdb as vdb
 		import numpy as np
+		import math
 		# parser.add_argument("--vdb_save", default="", help="Output a openvdb volume file from the NeRF or SDF model.")
 		# parser.add_argument("--vdb_voxel_res", default=256, type=int, help="Sets the resolution of the voxel volume in the vdb.")
-		res = args.vdb_voxel_res or 256
-		print(f"Generating volume and saving to {args.vdb_save}. Resolution=[{res},{res},{res}]")
-		numpyVDB = testbed.vdb( [res, res, res], -0.5 )
+		res = args.vdb_voxel_res or 1024
+		out = os.path.abspath(args.vdb_save)
+		print(f"Generating volume and saving to {out}. Resolution=[{res},{res},{res}]")
+		numpyVDB = testbed.vdb( [256, 256, 256] )#, ngp.BoundingBox( (-1,-1,-1), (1,1,1) ) )
+		print(numpyVDB['BBmin'], numpyVDB['BBmax'], numpyVDB['BBmax']-numpyVDB['BBmin'])
+
+		bbox_center = [0.0, 0.0, 0.0]
+		if args.vdb_crop_offsetX:
+			bbox_center[0] = args.vdb_crop_offsetX
+		if args.vdb_crop_offsetY:
+			bbox_center[1] = args.vdb_crop_offsetY
+		if args.vdb_crop_offsetZ:
+			bbox_center[2] = args.vdb_crop_offsetZ
+
+		bbox = ngp.BoundingBox(numpyVDB['BBmin'] * args.vdb_crop + bbox_center,  numpyVDB['BBmax'] * args.vdb_crop + bbox_center)
+
+		print(bbox.min, bbox.max, bbox.max-bbox.min)
+		# res = testbed.get_marching_cubes_res([res, res, res], bbox)
+		numpyVDB = testbed.vdb( [res, res, res], -0.5 , bbox )
+		print(numpyVDB['BBmin'], numpyVDB['BBmax'], res)
+
 		numpyArray = np.ndarray((res, res, res), float)
+		numpyArrayColor = np.ndarray((res, res, res, 3), float)
 		# print(numpyVDB)
 		# print(type(numpyVDB))
 		for each in numpyVDB:
 			if hasattr( numpyVDB[each], 'shape' ):
 				print(each, numpyVDB[each].shape)
+
+		print( numpyArray.shape )
+
 		# 	numpyVDB[each]
-		D = np.concatenate((numpyVDB['V'], numpyVDB['D']), axis=1)
+		# D = np.concatenate((numpyVDB['V'], numpyVDB['D']), axis=1)
 		# print (D, D.shape)
-		print(numpyVDB['BBmin'], numpyVDB['BBmax'])
 		def xyz2ijk(numpyVDB, V):
-			x = V[0]
-			y = V[1]
-			z = V[2]
+			x = 0 if math.isinf(V[0]) else V[0]
+			y = 0 if math.isinf(V[1]) else V[1]
+			z = 0 if math.isinf(V[2]) else V[2]
 			xsize = numpyVDB['BBmax'][0] - numpyVDB['BBmin'][0]
 			ysize = numpyVDB['BBmax'][1] - numpyVDB['BBmin'][1]
 			zsize = numpyVDB['BBmax'][2] - numpyVDB['BBmin'][2]
+			# print( x, xsize, abs( (x - numpyVDB['BBmin'][0]) * (numpyVDB['Res'][0] / xsize) ) )
 			i = int(abs( (x - numpyVDB['BBmin'][0]) * (numpyVDB['Res'][0] / xsize) ))
 			j = int(abs( (y - numpyVDB['BBmin'][1]) * (numpyVDB['Res'][1] / ysize) ))
-			k = int(abs( (z - numpyVDB['BBmin'][2]) * (numpyVDB['Res'][2] / ysize) ))
+			k = int(abs( (z - numpyVDB['BBmin'][2]) * (numpyVDB['Res'][2] / zsize) ))
 			return (i,j,k)
 
-		np_grid=np.ndarray((res, res, res, 3), float)
-		for n in range(1,len(numpyVDB['V'])):
-			i, j, k = xyz2ijk(numpyVDB, numpyVDB['V'][n])
-			numpyArray[i][j][k] = numpyVDB['D'][n]
+		# np_grid=np.ndarray((res, res, res, 3), float)
+		# for n in range(1,len(numpyVDB['V'])):
+		# 	# print( numpyVDB['V'][n])
+		# 	i, j, k = xyz2ijk(numpyVDB, numpyVDB['V'][n])
+		# 	try:
+		# 		numpyArray[i][j][k] = numpyVDB['D'][n]
+		# 		for rgb in range(3):
+		# 			numpyArrayColor[i][j][k][rgb] = numpyVDB['C'][n][rgb]
+		# 	except: pass
+		#
+		# for x in range(res):
+		# 	for y in range(res):
+		# 		print (x,y)
+		# 		for z in range(res):
+		# 			gridID = x+y*res+z*res*res;
+		# 			numpyArray[x][y][z] = numpyVDB['D'][gridID]
+
 		# print(X.shape)
 		# print(D[0][2])
 		# min=99999999999999999999999
@@ -345,11 +387,28 @@ if __name__ == "__main__":
 		# 	if v!=0.0 and v < min:
 		# 		min = v
 		# 		print( n,'{:.80f}'.format(v))
+		print("Saving density...",)
 		vecgrid = vdb.FloatGrid()
-		vecgrid.copyFromArray(numpyArray)
+		vecgrid.copyFromArray(numpyVDB['D'])
 		print(vecgrid.activeVoxelCount())
 		vecgrid.name = 'density'
-		vdb.write('out.vdb', vecgrid)
+		print("[DONE]")
+
+		print("Saving density2...",)
+		vecgrid3 = vdb.FloatGrid()
+		vecgrid3.copyFromArray(numpyVDB['D2'])
+		print(vecgrid3.activeVoxelCount())
+		vecgrid3.name = 'density2'
+		print("[DONE]")
+
+		print("Saving color...",)
+		vecgrid2 = vdb.Vec3SGrid()
+		vecgrid2.copyFromArray(numpyVDB['C'])
+		print(vecgrid2.activeVoxelCount())
+		vecgrid2.name = 'color'
+		print("[DONE]")
+
+		vdb.write(out, [vecgrid, vecgrid2, vecgrid3])
 
 	if args.width:
 		if ref_transforms:

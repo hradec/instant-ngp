@@ -279,6 +279,7 @@ __global__ void gen_voxel(BoundingBox aabb, Vector3i res_3d, const float* __rest
 	uint32_t x = blockIdx.x * blockDim.x + threadIdx.x;
 	uint32_t y = blockIdx.y * blockDim.y + threadIdx.y;
 	uint32_t z = blockIdx.z * blockDim.z + threadIdx.z;
+
 	if (x>=res_3d.x() || y>=res_3d.y() || z>=res_3d.z()) return;
 	Vector3f scale=(aabb.max-aabb.min).cwiseQuotient(res_3d.cast<float>());
 	Vector3f offset=aabb.min;
@@ -310,13 +311,14 @@ __global__ void gen_voxel(BoundingBox aabb, Vector3i res_3d, const float* __rest
 	bool inside=(f0>thresh);
 	if (x<res_3d.x()-1) {
 		float f1 = density[idx+1];
-		if (inside != (f1>thresh))
+		// if (inside != (f1>thresh))
 		{
 			uint32_t vidx = atomicAdd(counters,1);
 			if (verts_out) {
 				vertidx_grid[idx]=vidx+1;
 				float prevf=f0,nextf=f1;
 				float dt=((thresh-prevf)/(nextf-prevf));
+				dt=0;
 				verts_out[vidx]=Vector3f{float(x)+dt, float(y), float(z)}.cwiseProduct(scale) + offset;
 				density_out[vidx]=Vector4f{prevf, nextf, dt, 0};
 			}
@@ -324,13 +326,14 @@ __global__ void gen_voxel(BoundingBox aabb, Vector3i res_3d, const float* __rest
 	}
 	if (y<res_3d.y()-1) {
 		float f1 = density[idx+res_3d.x()];
-		if (inside != (f1>thresh))
+		// if (inside != (f1>thresh))
 		{
 			uint32_t vidx = atomicAdd(counters,1);
 			if (verts_out) {
 				vertidx_grid[idx+res3]=vidx+1;
 				float prevf=f0,nextf=f1;
 				float dt=((thresh-prevf)/(nextf-prevf));
+				dt=0;
 				verts_out[vidx]=Vector3f{float(x), float(y)+dt, float(z)}.cwiseProduct(scale) + offset;
 				density_out[vidx]=Vector4f{prevf, nextf, dt, 0};
 			}
@@ -338,13 +341,14 @@ __global__ void gen_voxel(BoundingBox aabb, Vector3i res_3d, const float* __rest
 	}
 	if (z<res_3d.z()-1) {
 		float f1 = density[idx+res2];
-		if (inside != (f1>thresh))
+		// if (inside != (f1>thresh))
 		{
 			uint32_t vidx = atomicAdd(counters,1);
 			if (verts_out) {
 				vertidx_grid[idx+res3*2]=vidx+1;
 				float prevf=f0,nextf=f1;
 				float dt=((thresh-prevf)/(nextf-prevf));
+				dt=0;
 				verts_out[vidx]=Vector3f{float(x), float(y), float(z)+dt}.cwiseProduct(scale) + offset;
 				density_out[vidx]=Vector4f{prevf, nextf, dt, 0};
 			}
@@ -888,6 +892,7 @@ void voxel_gpu(cudaStream_t stream, BoundingBox aabb, Vector3i res_3d, float thr
 	std::vector<uint32_t> cpucounters; cpucounters.resize(4);
 	counters.copy_to_host(cpucounters);
 	tlog::info() << "#vertices=" << cpucounters[0] << " #triangles=" << (cpucounters[1]/3);
+	// std::cout << "#vertices=" << cpucounters[0] << " #triangles=" << (cpucounters[1]/3) << "\n";
 
 	uint32_t n_verts=(cpucounters[0]+127)&~127; // round for later nn stuff
 	verts_out.resize(n_verts);

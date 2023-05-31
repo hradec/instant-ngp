@@ -14,6 +14,7 @@
 
 #include <neural-graphics-primitives/testbed.h>
 #include <neural-graphics-primitives/thread_pool.h>
+#include <neural-graphics-primitives/marching_cubes.h>
 
 #include <json/json.hpp>
 
@@ -33,6 +34,7 @@
 #  endif
 #  include <GLFW/glfw3.h>
 #endif
+
 
 using namespace tcnn;
 using namespace Eigen;
@@ -124,7 +126,10 @@ pybind11::dict Testbed::vdb(Eigen::Vector3i res3d, float thresh, BoundingBox aab
 		aabb = m_testbed_mode == ETestbedMode::Nerf ? m_render_aabb : m_aabb;
 	}
 
+
+#if 0
 	voxel_vdb(res3d, aabb, thresh);
+	// voxel_vdb_using_png(res3d, aabb, thresh);
 
 	py::array_t<float> cpuverts({(int)m_mesh.verts.size(), 3});
 	py::array_t<float> cpunormals({(int)m_mesh.vert_normals.size(), 3});
@@ -135,25 +140,6 @@ pybind11::dict Testbed::vdb(Eigen::Vector3i res3d, float thresh, BoundingBox aab
 	CUDA_CHECK_THROW(cudaMemcpy(cpunormals.request().ptr, m_mesh.vert_normals.data() , m_mesh.vert_normals.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
 	CUDA_CHECK_THROW(cudaMemcpy(cpucolors.request().ptr, m_mesh.vert_colors.data() , m_mesh.vert_colors.size() * 3 * sizeof(float), cudaMemcpyDeviceToHost));
 	CUDA_CHECK_THROW(cudaMemcpy(cpudensity.request().ptr, m_mesh.vert_density.data() , m_mesh.vert_density.size() * 4 * sizeof(float), cudaMemcpyDeviceToHost));
-
-	std::cout <<  aabb << " " << "\n";
-
-	py::array_t<float> BBmax({3});
-	py::buffer_info buf_BBmax = BBmax.request();
-	float *ptr_BBmax = (float *)buf_BBmax.ptr;
-
-	py::array_t<float> BBmin({3});
-	py::buffer_info buf_BBmin = BBmin.request();
-	float *ptr_BBmin = (float *)buf_BBmin.ptr;
-
-	ptr_BBmin[0] = aabb.min.x();
-	ptr_BBmin[1] = aabb.min.y();
-	ptr_BBmin[2] = aabb.min.z();
-
-	ptr_BBmax[0] = aabb.max.x();
-	ptr_BBmax[1] = aabb.max.y();
-	ptr_BBmax[2] = aabb.max.z();
-
 
 	// double *gridD = new double[aabb.maxaabb.min]
 
@@ -175,13 +161,133 @@ pybind11::dict Testbed::vdb(Eigen::Vector3i res3d, float thresh, BoundingBox aab
 		ptr_cpudensityf[x] = float(ptr_cpudensity[ x * buf_cpudensity.shape[1] ]);
 	}
 
-
 	Eigen::Vector3f* ns = (Eigen::Vector3f*)cpunormals.request().ptr;
 	for (size_t i = 0; i < m_mesh.vert_normals.size(); ++i) {
 		ns[i].normalize();
 	}
 
+	std::cout <<  aabb << " " << "\n";
+
+	py::array_t<float> BBmax({3});
+	py::buffer_info buf_BBmax = BBmax.request();
+	float *ptr_BBmax = (float *)buf_BBmax.ptr;
+
+	py::array_t<float> BBmin({3});
+	py::buffer_info buf_BBmin = BBmin.request();
+	float *ptr_BBmin = (float *)buf_BBmin.ptr;
+
+	ptr_BBmin[0] = aabb.min.x();
+	ptr_BBmin[1] = aabb.min.y();
+	ptr_BBmin[2] = aabb.min.z();
+
+	ptr_BBmax[0] = aabb.max.x();
+	ptr_BBmax[1] = aabb.max.y();
+	ptr_BBmax[2] = aabb.max.z();
+
+
 	return py::dict("V"_a=cpuverts, "N"_a=cpunormals, "C"_a=cpucolors, "D"_a=cpudensityf, "BBmin"_a=BBmin, "BBmax"_a=BBmax, "Res"_a=res3d);
+
+#else
+	// this resizes the grib resolution to the new bbox size,
+	// so we get the same wanted grid size when the bbox size is smaller.
+	auto new_res3d = get_marching_cubes_res(res3d.x(), aabb);
+
+	new_res3d.x() = next_multiple((unsigned int)new_res3d.x(), 16u);
+	new_res3d.y() = next_multiple((unsigned int)new_res3d.y(), 16u);
+	new_res3d.z() = next_multiple((unsigned int)new_res3d.z(), 16u);
+
+	// sample density grid
+	GPUMemory<float> density = get_density_on_grid(new_res3d, aabb);
+	std::vector<float> density_cpu;
+	density_cpu.resize(density.size());
+	density.copy_to_host(density_cpu);
+	density.free_memory();
+
+	// sample color grid
+	auto effective_view_dir = Vector3f{0.0f, 0.0f, 1.0f};
+	m_render_aabb = aabb;
+	GPUMemory<Array4f> rgba = get_rgba_on_grid(new_res3d, effective_view_dir);
+	std::vector<Array4f> rgba_cpu;
+	rgba_cpu.resize(rgba.size());
+	rgba.copy_to_host(rgba_cpu);
+	rgba.free_memory();
+
+	unsigned int N = new_res3d.x()*new_res3d.y()*new_res3d.z();
+
+	py::array_t<float> cpucolors  ({
+		(int)new_res3d.x(),
+		(int)new_res3d.y(),
+		(int)new_res3d.z(),
+	3});
+	py::buffer_info buf_cpucolors = cpucolors.request();
+	float *ptr_cpucolors = (float *)buf_cpucolors.ptr;
+
+	py::array_t<float> cpudensity({
+		(int)new_res3d.x(),
+		(int)new_res3d.y(),
+		(int)new_res3d.z()
+	});
+	py::buffer_info buf_cpudensity = cpudensity.request();
+	float *ptr_cpudensity = (float *)buf_cpudensity.ptr;
+
+	py::array_t<float> cpudensity2({
+		(int)new_res3d.x(),
+		(int)new_res3d.y(),
+		(int)new_res3d.z()
+	});
+	py::buffer_info buf_cpudensity2 = cpudensity2.request();
+	float *ptr_cpudensity2 = (float *)buf_cpudensity2.ptr;
+
+	py::array_t<float> cpucolors2  ({
+		(int)new_res3d.x(),
+		(int)new_res3d.y(),
+		(int)new_res3d.z(),
+	3});
+	py::buffer_info buf_cpucolors2 = cpucolors2.request();
+	float *ptr_cpucolors2 = (float *)buf_cpucolors2.ptr;
+
+
+	float color[4];
+	for (int z = 1; z < new_res3d.z() - 1; ++z) {
+		for (int y = 1; y < new_res3d.y() - 1; ++y) {
+			for (int x = 1; x < new_res3d.x() - 1; ++x) {
+				long gridID = x+y*new_res3d.x()+z*new_res3d.x()*new_res3d.y();
+				ptr_cpudensity[ gridID ] = density_cpu[ gridID ];
+				color[0] = rgba_cpu[gridID].x();
+				color[1] = rgba_cpu[gridID].y();
+				color[2] = rgba_cpu[gridID].z();
+				color[3] = rgba_cpu[gridID].w();
+				for (int c = 0 ; c < 3 ; c++ ){
+					long gridColorID = c+x*3+y*3*new_res3d.x()+z*3*new_res3d.x()*new_res3d.y();
+					ptr_cpucolors[ gridColorID ] = color[c];
+					// ptr_cpucolors2[ gridColorID ] = color[c]*0.1;
+				}
+				// multiply density by Value of color.
+				ptr_cpudensity2[ gridID ] = density_cpu[ gridID ] * max(ptr_cpucolors[3], max(ptr_cpucolors[0], ptr_cpucolors[1]));
+			}
+		}
+	}
+	// std::cout <<  aabb << " " << "\n";
+
+
+	py::array_t<float> BBmax({3});
+	py::buffer_info buf_BBmax = BBmax.request();
+	float *ptr_BBmax = (float *)buf_BBmax.ptr;
+
+	py::array_t<float> BBmin({3});
+	py::buffer_info buf_BBmin = BBmin.request();
+	float *ptr_BBmin = (float *)buf_BBmin.ptr;
+
+	ptr_BBmin[0] = aabb.min.x();
+	ptr_BBmin[1] = aabb.min.y();
+	ptr_BBmin[2] = aabb.min.z();
+
+	ptr_BBmax[0] = aabb.max.x();
+	ptr_BBmax[1] = aabb.max.y();
+	ptr_BBmax[2] = aabb.max.z();
+
+	return py::dict("C"_a=cpucolors, "D"_a=cpudensity, "D2"_a=cpudensity2, "BBmin"_a=BBmin, "BBmax"_a=BBmax, "Res"_a=new_res3d);
+#endif
 }
 
 py::array_t<float> Testbed::render_to_cpu(int width, int height, int spp, bool linear, float start_time, float end_time, float fps, float shutter_fraction) {

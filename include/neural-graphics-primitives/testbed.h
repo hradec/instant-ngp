@@ -336,6 +336,7 @@ public:
 	tcnn::GPUMemory<Eigen::Array4f> get_rgba_on_grid(Eigen::Vector3i res3d, Eigen::Vector3f ray_dir);
 	int marching_cubes(Eigen::Vector3i res3d, const BoundingBox& aabb, float thresh);
 	int voxel_vdb(Eigen::Vector3i res3d, const BoundingBox& aabb, float thresh);
+	int voxel_vdb_using_png(Eigen::Vector3i res3d, const BoundingBox& aabb, float thresh);
 
 	// Determines the 3d focus point by rendering a little 16x16 depth image around
 	// the mouse cursor and picking the median depth.

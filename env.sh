@@ -6,9 +6,13 @@ cd $CD
 CORES=$(lscpu | egrep '^CPU.s' | awk '{print $(NF)}')
 
 # the max cuda GPU architecture to build for
-# export TCNN_CUDA_ARCHITECTURES=86
-export TCNN_CUDA_ARCHITECTURES=61
+if [ "$(lspci | grep VGA | grep RTX)" != "" ] ; then
+	export TCNN_CUDA_ARCHITECTURES=86
+else
+	export TCNN_CUDA_ARCHITECTURES=61
+fi
 
+echo "TCNN_CUDA_ARCHITECTURES=$TCNN_CUDA_ARCHITECTURES"
 
 # set expra as display, if no display
 if [ "$DISPLAY" == "" ] ; then
@@ -17,7 +21,7 @@ fi
 echo -e "DISPLAY=$DISPLAY\n"
 
 # check if we're running remotely, and if we need to use virtualgl
-if [ "$DISPLAY" != ":0" ] ; then
+if [ "$DISPLAY" == ":40" ] ; then
 	export vglrun=vglrun
 fi
 
